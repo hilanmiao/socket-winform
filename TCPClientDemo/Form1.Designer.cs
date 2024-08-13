@@ -183,6 +183,7 @@ namespace TCPClientDemo
             this.Controls.Add(this.lbIP);
             this.Name = "Form1";
             this.Text = "TCP客户端";
+            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.Form1_FormClosing);
             this.ResumeLayout(false);
             this.PerformLayout();
 

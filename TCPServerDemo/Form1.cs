@@ -54,8 +54,13 @@ namespace TCPServerDemo
         private void btnStartService_Click(object sender, EventArgs e)
         {
             socketListen = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            socketListen.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.DontLinger, true);
 
-            Invoke(myReceiveInfoDel, "服务启动");
+
+            // 同步委托
+            // Invoke(myReceiveInfoDel, "服务启动");
+            // 异步委托
+            BeginInvoke(myReceiveInfoDel, "服务启动中...");
             // 禁止重复操作按钮
             btnStartService.Enabled = false;
 
@@ -80,11 +85,16 @@ namespace TCPServerDemo
                 threadListen = new Thread(ListenConnect); // 线程绑定Listen函数
                 threadListen.IsBackground = true; //运行线程在后台执行
                 threadListen.Start(); //Start里面的参数是Listen函数所需要的参数，这里传送的是用于通信的Socket对象
+
+                // 或者使用线程池
+                // ThreadPool.QueueUserWorkItem(new WaitCallback(ListenConnect), socketListen);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                MessageBox.Show("启动失败");
+                Console.WriteLine(ex.ToString());
+                BeginInvoke(myReceiveInfoDel, "服务启动失败！");
                 btnStartService.Enabled = true;
+                MessageBox.Show("服务启动失败！");
             }
         }
 
@@ -95,43 +105,46 @@ namespace TCPServerDemo
         /// <param name="e"></param>
         private void btnCloseService_Click(object sender, EventArgs e)
         {
-            // 关闭所有通信线程和套接字
-            foreach (string item in dictSocket.Keys)
-            {
-                dictThread[item].Abort();
-                dictSocket[item].Close();
-            }
-
-            // 关闭监听线程和套接字
-            socketListen.Close();
-            threadListen.Abort();
+            closeAllConnect();
 
             btnStartService.Enabled = true;
-            Invoke(myReceiveInfoDel, "服务关闭");
+            Invoke(myReceiveInfoDel, "服务已关闭！");
         }
 
         /// <summary>
         /// 监听客户端的连接
         /// </summary>
-        private void ListenConnect()
+        private void ListenConnect(object obj)
         {
+            Invoke(myReceiveInfoDel, "开始接受客户端的连接...");
+
             while (true)
             {
-                //4.阻塞到有client连接，返回新的套接字，创建用于通信的socket
-                Socket socketCommunication = socketListen.Accept();
+                try
+                {
+                    //4.阻塞到有client连接，返回新的套接字，创建用于通信的socket
+                    Socket socketCommunication = socketListen.Accept();
 
-                // 获取远程终结点
-                string endPoint = socketCommunication.RemoteEndPoint.ToString();
-                // 将每个连接都保存到集合中
-                dictSocket.Add(endPoint, socketCommunication);
-                Invoke(myUserInfoDel, endPoint, false);
+                    // 获取远程终结点
+                    string endPoint = socketCommunication.RemoteEndPoint.ToString();
+                    // 将每个连接都保存到集合中
+                    dictSocket.Add(endPoint, socketCommunication);
+                    Invoke(myReceiveInfoDel, endPoint + " 连接上了");
+                    Invoke(myUserInfoDel, endPoint, false);
 
-                // 创建用于通信的线程（为每个客户分配一个线程）
-                Thread threadCommunication = new Thread(ReceiveMsg);
-                threadCommunication.IsBackground = true;
-                threadCommunication.Start(socketCommunication);
-                // 将每个进程也都保存到集合中
-                dictThread.Add(endPoint, threadCommunication);
+                    // 创建用于通信的线程（为每个客户分配一个线程）
+                    Thread threadCommunication = new Thread(ReceiveMsg);
+                    threadCommunication.IsBackground = true;
+                    threadCommunication.Start(socketCommunication);
+                    // 将每个进程也都保存到集合中
+                    dictThread.Add(endPoint, threadCommunication);
+                }
+                catch (Exception e)
+                {
+                    Invoke(myReceiveInfoDel, "服务异常，请尝试重新启动！");
+
+                    closeAllConnect();
+                }
             }
         }
 
@@ -143,13 +156,13 @@ namespace TCPServerDemo
         {
             // 上面传递的用于通信的socket
             Socket socket = obj as Socket;
+            byte[] receiveBytes = new byte[1024 * 1024 * 1];
 
             while (true)
             {
                 // 5.接收数据
                 // 创建一个内存缓冲区，其大小为1024*1024*5个字节，即5M
-                //byte[] arrReceive = new byte[1024 * 1024 * 5]; // 5M
-                byte[] receiveBytes = new byte[1024 * 8]; // 8KB
+                //byte[] arrReceive = new byte[1024 * 1024 * 1]; // 1M
                 int length = -1;
                 string endPoint = socket.RemoteEndPoint.ToString();
 
@@ -160,11 +173,12 @@ namespace TCPServerDemo
                     if (length == 0)
                     {
                         // 消息附加到文本框上
-                        Invoke(myReceiveInfoDel, endPoint + " 下线了");
+                        Invoke(myReceiveInfoDel, endPoint + " 正常下线");
                         Invoke(myUserInfoDel, endPoint, true);
                         // 移除连接
                         dictSocket.Remove(endPoint);
-
+                        // 关闭连接
+                        closeConnect(socket);
                         // 跳出循环
                         break;
                     }
@@ -172,7 +186,7 @@ namespace TCPServerDemo
                     {
                         // 6.打印数据
                         // 将字节数组转换为可以读懂的字符串
-                        //string str = Encoding.UTF8.GetString(arrReceive, 0, length);
+                        //string str = Encoding.Default.GetString(arrReceive, 0, length);
                         // 实际接收的字节
                         var recieveBytesReal = receiveBytes.Take(length).ToArray();
                         string hexString = ToHexStringFromByte(recieveBytesReal);
@@ -186,15 +200,77 @@ namespace TCPServerDemo
                 }
                 catch (Exception e)
                 {
-                    Invoke(myReceiveInfoDel, endPoint + " 下线了");
+                    Invoke(myReceiveInfoDel, endPoint + " 异常下线！");
                     Invoke(myUserInfoDel, endPoint, true);
                     dictSocket.Remove(endPoint);
+                    closeConnect(socket);
 
                     // 跳出循环
                     break;
                 }
             }
         }
+
+        /// <summary>
+        /// 关闭连接
+        /// </summary>
+        private void closeConnect(Socket socketCommunication)
+        {
+            try
+            {
+                if (socketCommunication != null && socketCommunication.Connected)
+                {
+                    // 关闭通信线程和套接字
+                    socketCommunication.Shutdown(SocketShutdown.Both);
+                    socketCommunication.Close(60);
+                    string endPoint = socketCommunication.RemoteEndPoint.ToString();
+                    dictThread[endPoint].Abort();
+                }
+            }
+            catch (Exception e)
+            {
+                // throw;
+            }
+
+        }
+
+        /// <summary>
+        /// 关闭所有连接
+        /// </summary>
+        private void closeAllConnect()
+        {
+            try
+            {
+                // 关闭所有通信线程和套接字
+                foreach (string item in dictSocket.Keys)
+                {
+                    if (dictSocket[item] != null && dictSocket[item].Connected)
+                    {
+                        dictSocket[item].Shutdown(SocketShutdown.Both);
+                        dictSocket[item].Close(60);
+                        dictThread[item].Abort();
+                    }
+                }
+
+                if (socketListen != null)
+                {
+                    // 注意这里加了个判断，和上面有所不同，因为：“服务启动”后没有任何客户端连接的情况下，connected 是 false，
+                    // 执行 shutdown 会报错，导致后面 close 不会执行，再次“服务启动”会提示失败。
+                    if (socketListen.Connected)
+                    {
+                        socketListen.Shutdown(SocketShutdown.Both);
+                    }
+                    socketListen.Close();
+                    threadListen.Abort();
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.ToString());
+            }
+        }
+
+
 
         /// <summary>
         /// 附加信息到用户列表
@@ -231,7 +307,7 @@ namespace TCPServerDemo
         {
             string textSend = this.txtSend.Text;
             // 将要发送的消息转换为字节数组
-            // byte[] arrText = Encoding.UTF8.GetBytes(textSend);
+            // byte[] arrText = Encoding.Default.GetBytes(textSend);
             byte[] byteDatas = ToBytesFromHexString(textSend);
 
             if (this.lbxUserInfo.SelectedItems.Count == 0)
@@ -264,7 +340,7 @@ namespace TCPServerDemo
         private void btnSendToAll_Click(object sender, EventArgs e)
         {
             string textSend = this.txtSend.Text;
-            byte[] arrText = Encoding.UTF8.GetBytes(textSend);
+            byte[] arrText = Encoding.Default.GetBytes(textSend);
 
             foreach (string item in dictSocket.Keys)
             {
@@ -353,7 +429,7 @@ namespace TCPServerDemo
         /// </summary>
         /// <param name="plainString"></param>
         /// <returns></returns>
-        public static string ToHexString(string plainString, string encode = "utf-8")
+        public static string ToHexString(string plainString, string encode = "gbk")
         {
             // 常见可选编码 utf-8、utf-16、unicode、ascii、big5、gb2312、gbk、shift_jis、iso - 8859 - 1，可用繁体“龘da”测试不同编码呈现效果
             byte[] byteDatas = Encoding.GetEncoding(encode).GetBytes(plainString);
@@ -367,7 +443,7 @@ namespace TCPServerDemo
         /// <param name="hexString"></param>
         /// <param name="encode"></param>
         /// <returns></returns>
-        public static string ToStringFromHexString(string hexString, string encode = "utf-8")
+        public static string ToStringFromHexString(string hexString, string encode = "gbk")
         {
             // 常见可选编码 utf-8、utf-16、unicode、ascii、big5、gb2312、gbk、shift_jis、iso - 8859 - 1，可用繁体“龘da”测试不同编码呈现效果
             byte[] _bytes = ToBytesFromHexString(hexString);
@@ -391,9 +467,10 @@ namespace TCPServerDemo
             // 返回示例 46 53 56 31 33 37 30 32 30 31 31 36 AA 03 02 08 DC 9B C5
         }
 
-        private void handleReceiveData(byte[] bytes) {
+        private void handleReceiveData(byte[] bytes)
+        {
             // 心跳包 heartbeat
-            if(bytes.Length == 12)
+            if (bytes.Length == 12)
             {
 
             }
@@ -434,7 +511,8 @@ namespace TCPServerDemo
             // 长度为12，表示是心跳
             if (bytes.Length == 12)
             {
-                moduleNumber = Encoding.ASCII.GetString(bytes);
+                // moduleNumber = Encoding.ASCII.GetString(bytes);
+                moduleNumber = Encoding.Default.GetString(bytes);
                 dict.Add("moduleNumber", moduleNumber);
                 return dict;
             }
@@ -442,7 +520,8 @@ namespace TCPServerDemo
             // 长度大于12，表示有应答数据
 
             // 获取前12位表示的4G模块号
-            moduleNumber = Encoding.ASCII.GetString(bytes.Take(12).ToArray());
+            // moduleNumber = Encoding.ASCII.GetString(bytes.Take(12).ToArray());
+            moduleNumber = Encoding.Default.GetString(bytes.Take(12).ToArray());
             dict.Add("moduleNumber", moduleNumber);
 
             // 获取后面的Modbus协议内容 
@@ -450,7 +529,7 @@ namespace TCPServerDemo
 
             // 判断长度
             // 获取供温
-            if (contentBytes.Length == 3+(1*2)+2 ) // 7
+            if (contentBytes.Length == 3 + (1 * 2) + 2) // 7
             {
                 // 协议对此寄存器定义和返回的数据长度是1，即两个字节（默认读取顺序从高位往低位，需要按照实际情况对照检查并更改顺序）
                 // 下标从0开始，位置需要+固定开头3个字节（设备地址+功能码+后面被读取数据的字节数），所以数据初始下标：3+（协议表格里当前选择范围的第几行-1）*2，且一定是奇数
@@ -461,9 +540,9 @@ namespace TCPServerDemo
                 // 协议定义：实际值需要除以100
                 string gongwen = (gongwenUshort / 100d).ToString();
                 dict.Add("gongwen", gongwen);
-            } 
+            }
             // 获取前48个参数
-            else if(contentBytes.Length == 3+(48*2)+2) // 101
+            else if (contentBytes.Length == 3 + (48 * 2) + 2) // 101
             {
                 // 下标3+(1-1)*2=3
                 dict.Add("gliuliang", (BitConverter.ToUInt32(ABCD(contentBytes, 3), 0) / 1000d).ToString());
@@ -556,6 +635,20 @@ namespace TCPServerDemo
             this.btnSendToSingle_Click(sender, e);
 
             // 返回示例 46 53 56 31 33 37 30 32 30 31 31 36 AA 03 02 08 DC 9B C5
+        }
+
+        private void btnCommand3_Click(object sender, EventArgs e)
+        {
+            this.txtSend.Text = "01 02";
+            this.btnSendToSingle_Click(sender, e);
+            Thread.Sleep(1000 * 10);
+            this.txtSend.Text = "03 04";
+            this.btnSendToSingle_Click(sender, e);
+        }
+
+        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            closeAllConnect();
         }
     }
 }

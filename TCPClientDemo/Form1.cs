@@ -44,15 +44,16 @@ namespace TCPClientDemo
             try
             {
                 socketCommunication.Connect(iPEndPoint);
-                this.txtReceive.AppendText("连接成功" + Environment.NewLine);
+                this.txtReceive.AppendText("连接成功！" + Environment.NewLine);
 
                 threadCommunication = new Thread(ReceiveMsg);
                 threadCommunication.IsBackground = true;
                 threadCommunication.Start();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                MessageBox.Show("连接失败");
+                this.txtReceive.AppendText("连接失败！" + Environment.NewLine);
+                MessageBox.Show("连接失败！");
             }
         }
 
@@ -73,12 +74,14 @@ namespace TCPClientDemo
                 }
                 catch (SocketException e)
                 {
-                    Invoke(new Action(() => this.txtReceive.AppendText("SocketException：" + e.ToString() + Environment.NewLine)));
+                    BeginInvoke(new Action(() => this.txtReceive.AppendText(GetCurrentTime() + " SocketException：" + e.ToString() + Environment.NewLine)));
+                    closeConnect();
                     break;
                 }
                 catch (Exception ee)
                 {
-                    Invoke(new Action(() => this.txtReceive.AppendText("Exception：" + ee.ToString() + Environment.NewLine)));
+                    BeginInvoke(new Action(() => this.txtReceive.AppendText(GetCurrentTime() + " Exception：" + ee.ToString() + Environment.NewLine)));
+                    closeConnect();
                     break;
                 }
 
@@ -86,8 +89,35 @@ namespace TCPClientDemo
                 {
                     string str = Encoding.UTF8.GetString(arrMsgReceive, 0, length);
                     string msg = GetCurrentTime() + " [接收] " + endPoint + Environment.NewLine + str;
-                    Invoke(new Action(() => this.txtReceive.AppendText(msg + Environment.NewLine)));
+                    BeginInvoke(new Action(() => this.txtReceive.AppendText(msg + Environment.NewLine)));
                 }
+                else
+                {
+                    BeginInvoke(new Action(() => this.txtReceive.AppendText(GetCurrentTime() + " 服务器端 " + endPoint + " 正常下线 " + Environment.NewLine)));
+                    closeConnect();
+                    break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 关闭连接
+        /// </summary>
+        private void closeConnect()
+        {
+            try
+            {
+                if (socketCommunication != null && socketCommunication.Connected)
+                {
+                    // 关闭通信线程和套接字
+                    socketCommunication.Shutdown(SocketShutdown.Both);
+                    socketCommunication.Close(60);
+                    threadCommunication.Abort();
+                }
+            }
+            catch (Exception e)
+            {
+                // throw;
             }
         }
 
@@ -98,13 +128,26 @@ namespace TCPClientDemo
         /// <param name="e"></param>
         private void btnSend_Click(object sender, EventArgs e)
         {
-            //string strMsg = "来自" + txtName.Text + ":" + txtSend.Text;
-            //byte[] arrMsg = Encoding.ASCII.GetBytes(strMsg);
-            byte[] arrMsg = ToBytesFromHexString(txtSend.Text);
-            string endPoint = socketCommunication.RemoteEndPoint.ToString();
+            try
+            {
+                if (!socketCommunication.Connected)
+                {
+                    MessageBox.Show("还未连接服务端");
+                    return;
+                }
 
-            socketCommunication.Send(arrMsg);
-            Invoke(new Action(() => txtReceive.AppendText(GetCurrentTime() + " [发送] " + endPoint +  Environment.NewLine + txtSend.Text + Environment.NewLine)));
+                //string strMsg = "来自" + txtName.Text + ":" + txtSend.Text;
+                //byte[] arrMsg = Encoding.ASCII.GetBytes(strMsg);
+                byte[] arrMsg = ToBytesFromHexString(txtSend.Text);
+                string endPoint = socketCommunication.RemoteEndPoint.ToString();
+
+                socketCommunication.Send(arrMsg);
+                BeginInvoke(new Action(() => txtReceive.AppendText(GetCurrentTime() + " [发送] " + endPoint + Environment.NewLine + txtSend.Text + Environment.NewLine)));
+            }
+            catch (Exception ex)
+            {
+                // throw;
+            }
         }
 
         /// <summary>
@@ -149,11 +192,26 @@ namespace TCPClientDemo
         /// <param name="e"></param>
         private void btnCloseConnect_Click(object sender, EventArgs e)
         {
-            socketCommunication.Close();
-            // .net core 已废弃abort，这样写会报错，https://learn.microsoft.com/zh-cn/dotnet/core/compatibility/core-libraries/5.0/thread-abort-obsolete
-            threadCommunication.Abort();
+            try
+            {
+                if (socketCommunication != null && !socketCommunication.Connected)
+                {
+                    MessageBox.Show("还未连接服务端");
+                    return;
+                }
 
-            Invoke(new Action(() => txtReceive.AppendText(GetCurrentTime() + "连接关闭" + Environment.NewLine)));
+                // socketCommunication.Close();
+                socketCommunication.Shutdown(SocketShutdown.Both);
+                socketCommunication.Close(60);
+                // .net core 已废弃abort，这样写会报错，https://learn.microsoft.com/zh-cn/dotnet/core/compatibility/core-libraries/5.0/thread-abort-obsolete
+                threadCommunication.Abort();
+
+                BeginInvoke(new Action(() => txtReceive.AppendText(GetCurrentTime() + " 连接关闭！" + Environment.NewLine)));
+            }
+            catch (Exception ex)
+            {
+                BeginInvoke(new Action(() => txtReceive.AppendText(GetCurrentTime() + " 关闭出现异常！" + Environment.NewLine)));
+            }
         }
 
         /// <summary>
@@ -172,6 +230,11 @@ namespace TCPClientDemo
                 returnBytes[i] = Convert.ToByte(chars[i], 16);
             }
             return returnBytes;
+        }
+
+        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            closeConnect();
         }
     }
 }

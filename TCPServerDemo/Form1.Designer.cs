@@ -211,6 +211,7 @@
             this.btnCommand3.TabIndex = 18;
             this.btnCommand3.Text = "命令3";
             this.btnCommand3.UseVisualStyleBackColor = true;
+            this.btnCommand3.Click += new System.EventHandler(this.btnCommand3_Click);
             // 
             // groupBox1
             // 
@@ -286,6 +287,7 @@
             this.Controls.Add(this.groupBox5);
             this.Name = "Form1";
             this.Text = "TCP服务端";
+            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.Form1_FormClosing);
             this.Load += new System.EventHandler(this.Form1_Load);
             this.groupBox1.ResumeLayout(false);
             this.groupBox2.ResumeLayout(false);
