@@ -54,8 +54,6 @@ namespace TCPServerDemo
         private void btnStartService_Click(object sender, EventArgs e)
         {
             socketListen = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            socketListen.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.DontLinger, true);
-
 
             // 同步委托
             // Invoke(myReceiveInfoDel, "服务启动");
